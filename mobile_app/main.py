@@ -1,465 +1,726 @@
 import os
 import re
-import threading
+import time
+import urllib.parse
 from datetime import datetime
 
+import kivy
 from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.utils import platform
+from kivy.core.window import Window
+from kivy.metrics import dp
+
 from kivymd.app import MDApp
-from kivymd.uix.button import MDRaisedButton
+from kivymd.uix.screen import MDScreen
 from kivymd.uix.card import MDCard
+from kivymd.uix.button import MDRaisedButton, MDRectangleFlatButton, MDIconButton, MDFillRoundFlatButton
 from kivymd.uix.label import MDLabel
-from kivymd.uix.snackbar import MDSnackbar
+from kivymd.uix.textfield import MDTextField
+from kivymd.uix.snackbar import Snackbar
+from kivymd.uix.boxlayout import MDBoxLayout
+from kivymd.uix.gridlayout import MDGridLayout
+from kivymd.uix.scrollview import MDScrollView
+from kivymd.uix.list import MDList, OneLineIconListItem, IconLeftWidget
 
-if platform == "android":
+# Plyer for native features
+try:
+    from plyer import tts, clipboard, notification, vibrator
+    PLYER_AVAILABLE = True
+except ImportError:
+    PLYER_AVAILABLE = False
+
+# Platform check
+IS_ANDROID = (platform == "android")
+if IS_ANDROID:
     try:
-        from android.permissions import Permission, request_permissions
-        from plyer import tts, clipboard
-        ANDROID_READY = True
-    except ImportError:
-        ANDROID_READY = False
-else:
-    ANDROID_READY = False
+        from android.permissions import request_permissions, Permission
+        request_permissions([
+            Permission.READ_EXTERNAL_STORAGE,
+            Permission.WRITE_EXTERNAL_STORAGE,
+            Permission.POST_NOTIFICATIONS,
+            Permission.VIBRATE,
+            Permission.CALL_PHONE
+        ])
+    except Exception as e:
+        print("Android permission error:", e)
 
+# -------------------------------------------------------------
+# BILINGUAL TEXT DATABASE (English + Hindi)
+# -------------------------------------------------------------
+TEXTS = {
+    "en": {
+        "app_title": "CYBER SHIELD PRO",
+        "tagline": "PAUSE - CHECK - PROTECT",
+        "sub_tagline": "First-line digital safety assistant. Detect scam SMS, UPI requests, phone calls & risky links.",
+        "analyze_btn": "Start Analyzing",
+        "helpline_btn": "Helpline 1930",
+        "risk_safe": "SAFE (Low Risk)",
+        "risk_medium": "MEDIUM RISK (Caution)",
+        "risk_high": "HIGH RISK (Suspicious)",
+        "risk_critical": "CRITICAL RISK (Scam Confirmed!)",
+        "precautions_title": "Recommended Safety Precautions:",
+        "precaution_1": "- Never share OTP, PIN, or password with anyone.",
+        "precaution_2": "- Do not tap on unknown links or install APKs sent via SMS.",
+        "precaution_3": "- Banks never ask for sensitive credentials over phone calls.",
+        "precaution_4": "- Immediately report fraudulent transactions on 1930.",
+        "lang_toggle": "Language: English"
+    },
+    "hi": {
+        "app_title": "साइबर शील्ड प्रो",
+        "tagline": "रुकें - जांचें - सुरक्षित रहें",
+        "sub_tagline": "आपकी डिजिटल सुरक्षा सहायक। धोखाधड़ी एसएमएस, यूपीआई अनुरोध और संदिग्ध लिंक की जांच करें।",
+        "analyze_btn": "जांच शुरू करें",
+        "helpline_btn": "हेल्पलाइन 1930",
+        "risk_safe": "सुरक्षित (कम जोखिम)",
+        "risk_medium": "मध्यम जोखिम (सावधानी)",
+        "risk_high": "उच्च जोखिम (संदिग्ध)",
+        "risk_critical": "गंभीर खतरा (स्कैम की पुष्टि!)",
+        "precautions_title": "अनुशंसित सुरक्षा सावधानियां:",
+        "precaution_1": "- कभी भी किसी के साथ ओटीपी, पिन या पासवर्ड साझा न करें।",
+        "precaution_2": "- अज्ञात लिंक पर क्लिक न करें या अज्ञात एपीके इंस्टॉल न करें।",
+        "precaution_3": "- बैंक कभी भी फोन कॉल पर गोपनीय जानकारी नहीं मांगते।",
+        "precaution_4": "- धोखाधड़ी लेनदेन की तुरंत 1930 पर रिपोर्ट करें।",
+        "lang_toggle": "भाषा: हिंदी"
+    }
+}
 
+# -------------------------------------------------------------
+# THREAT ENGINE
+# -------------------------------------------------------------
 class ThreatEngine:
-    def __init__(self):
-        self.phishing_keywords = [
-            "login", "verify", "update", "confirm", "secure", "account", "banking",
-            "password", "suspended", "urgent", "immediately", "click here", "winner",
-            "congratulations", "prize", "lottery", "irs", "tax refund", "free gift",
-            "claim now", "act now", "limited time"
-        ]
-        self.suspicious_tlds = [".xyz", ".top", ".club", ".online", ".site", ".tk", ".ga", ".buzz", ".work"]
-        self.known_bad = ["paypa1.com", "amaz0n.com", "g00gle.com", "app1e.com", "faceb00k.com", "netfl1x.com"]
-        self.safe_domains = ["google.com", "youtube.com", "facebook.com", "amazon.com", "apple.com", "microsoft.com", "github.com"]
-        self.scam_patterns = {
-            "urgency": r"(urgent|immediately|right now|act fast|hurry)",
-            "money": r"(bitcoin|crypto|wire transfer|gift card|western union)",
-            "personal_info": r"(social security|ssn|credit card|bank account|pin)",
-            "threats": r"(arrested|lawsuit|warrant|suspended|terminated|locked)",
-            "too_good": r"(won|winner|congratulations|lucky|free|guaranteed)"
-        }
+    SUSPICIOUS_KEYWORDS = [
+        "lottery", "winner", "prize", "urgent", "blocked", "kyc", "verify",
+        "account suspended", "electricity bill", "part time job", "earn daily",
+        "click here", "claim now", "free recharge", "banned", "reward points",
+        "लॉटरी", "इनाम", "खाता निलंबित", "बिजली बिल", "पार्ट टाइम जॉब", "ओटीपी"
+    ]
 
-    def analyze_link(self, url):
-        url_lower = url.lower()
-        risk_score = 0
-        reasons = []
+    SUSPICIOUS_TLDS = [".xyz", ".top", ".club", ".tk", ".ml", ".ga", ".cf", ".gq", ".vip", ".work", ".site", ".online", ".info"]
 
-        for domain in self.known_bad:
-            if domain in url_lower:
-                risk_score += 60
-                reasons.append(f"Known malicious domain: {domain}")
+    KNOWN_PHISHING = [
+        "paypa1.com", "amaz0n.com", "g00gle.com", "sbi-kyc-update.com",
+        "free-recharge-net.com", "yono-sbi-login.xyz", "bank-verify.top"
+    ]
 
-        for safe in self.safe_domains:
-            if safe in url_lower:
-                risk_score = max(0, risk_score - 30)
+    SAFE_DOMAINS = ["google.com", "amazon.in", "sbi.co.in", "hdfcbank.com", "icicibank.com", "gov.in", "nic.in"]
 
-        for tld in self.suspicious_tlds:
-            if url_lower.endswith(tld) or tld + "/" in url_lower:
-                risk_score += 25
-                reasons.append(f"Suspicious TLD: {tld}")
+    @classmethod
+    def analyze(cls, text):
+        if not text or not text.strip():
+            return {"score": 0, "level": "SAFE", "flags": ["Empty text input"]}
 
-        if "http://" in url_lower and "https://" not in url_lower:
-            risk_score += 15
-            reasons.append("No HTTPS encryption")
+        text_lower = text.lower()
+        score = 0
+        flags = []
 
-        if "@" in url_lower:
-            risk_score += 30
-            reasons.append("Contains @ symbol (redirect trick)")
+        # 1. URL Analysis
+        urls = re.findall(r'https?://\S+|www\.\S+', text_lower)
+        for url in urls:
+            parsed = urllib.parse.urlparse(url if url.startswith('http') else 'http://' + url)
+            domain = parsed.netloc
 
-        found = [k for k in self.phishing_keywords if k in url_lower]
-        if found:
-            risk_score += len(found) * 5
-            reasons.append(f"Phishing keywords: {', '.join(found[:3])}")
+            if any(bad in domain for bad in cls.KNOWN_PHISHING):
+                score += 80
+                flags.append(f"Known phishing domain: {domain}")
 
-        risk_score = min(100, risk_score)
-        level = "SAFE"
-        is_safe = True
-        if risk_score >= 70:
+            if any(domain.endswith(tld) for tld in cls.SUSPICIOUS_TLDS):
+                score += 40
+                flags.append(f"Suspicious high-risk TLD: {domain}")
+
+            if domain.count('.') > 3:
+                score += 25
+                flags.append(f"Excessive subdomains in link: {domain}")
+
+            if any(char.isdigit() for char in domain.split('.')[0]):
+                score += 20
+                flags.append(f"Suspicious numbers in domain: {domain}")
+
+            if not any(safe in domain for safe in cls.SAFE_DOMAINS) and not flags:
+                score += 15
+                flags.append(f"Unverified third-party link: {domain}")
+
+        # 2. Keyword Analysis
+        for kw in cls.SUSPICIOUS_KEYWORDS:
+            if kw in text_lower:
+                score += 15
+                flags.append(f"Urgency/Scam keyword detected: '{kw}'")
+
+        # 3. Urgency / Credential Request Patterns
+        if re.search(r'(otp|pin|password|cvv)', text_lower):
+            score += 35
+            flags.append("Requests sensitive credentials (OTP/PIN/Password)")
+
+        if re.search(r'₹\s*\d+|\d+\s*rs|\d+\s*rupees', text_lower):
+            score += 20
+            flags.append("Money offer or payment urgency pattern")
+
+        score = min(score, 100)
+
+        if score >= 70:
             level = "CRITICAL"
-            is_safe = False
-        elif risk_score >= 40:
+        elif score >= 40:
             level = "HIGH"
-            is_safe = False
-        elif risk_score >= 20:
+        elif score >= 20:
             level = "MEDIUM"
-            is_safe = False
+        else:
+            level = "SAFE"
 
         return {
-            "url": url, "risk_score": risk_score, "risk_level": level,
-            "is_safe": is_safe, "reasons": reasons if reasons else ["No obvious threats detected"]
+            "score": score,
+            "level": level,
+            "flags": flags if flags else ["No suspicious patterns found."]
         }
 
-    def analyze_text(self, text):
-        text_lower = text.lower()
-        matched = []
-        for name, pattern in self.scam_patterns.items():
-            if re.search(pattern, text_lower):
-                matched.append(name)
-        
-        level = "SAFE"
-        is_scam = False
-        if len(matched) >= 3:
-            level = "CRITICAL"
-            is_scam = True
-        elif len(matched) >= 2:
-            level = "HIGH"
-            is_scam = True
-        elif len(matched) >= 1:
-            level = "MEDIUM"
-        
-        return {"is_scam": is_scam, "risk_level": level, "matched": matched}
-
-
-KV = """
-MDBoxLayout:
-    orientation: 'vertical'
-
-    MDTopAppBar:
-        title: "Cyber Shield"
-        elevation: 4
-        md_bg_color: 0.06, 0.09, 0.16, 1
-        specific_text_color: 0, 0.83, 1, 1
-        right_action_items: [["volume-high", lambda x: app.toggle_tts()]]
-
-    MDBottomNavigation:
-        panel_color: 0.06, 0.09, 0.16, 1
-        selected_color_background: 0, 0.83, 1, 0.2
-        text_color_active: 0, 0.83, 1, 1
-
-        MDBottomNavigationItem:
-            name: 'scanner'
-            text: 'Scanner'
-            icon: 'shield-search'
-
-            MDBoxLayout:
-                orientation: 'vertical'
-                padding: "16dp"
-                spacing: "12dp"
-
-                MDLabel:
-                    text: "Link & Scam Scanner"
-                    font_style: "H5"
-                    bold: True
-                    halign: "center"
-                    size_hint_y: None
-                    height: "40dp"
-
-                MDTextField:
-                    id: link_input
-                    hint_text: "Paste URL or suspicious text..."
-                    mode: "rectangle"
-                    multiline: True
-                    size_hint_y: None
-                    height: "100dp"
-
-                MDBoxLayout:
-                    size_hint_y: None
-                    height: "48dp"
-                    spacing: "10dp"
-
-                    MDRaisedButton:
-                        text: "Paste & Scan"
-                        on_release: app.paste_and_scan()
-                        md_bg_color: 0, 0.83, 1, 1
-                        text_color: 0, 0, 0, 1
-
-                    MDRaisedButton:
-                        text: "Scan Text"
-                        on_release: app.scan_manual_input()
-
-                ScrollView:
-                    MDBoxLayout:
-                        id: results_container
-                        orientation: 'vertical'
-                        size_hint_y: None
-                        height: self.minimum_height
-                        spacing: "10dp"
-
-        MDBottomNavigationItem:
-            name: 'screenshot'
-            text: 'Screenshot'
-            icon: 'camera'
-
-            MDBoxLayout:
-                orientation: 'vertical'
-                padding: "16dp"
-                spacing: "16dp"
-
-                MDLabel:
-                    text: "Screenshot Detection"
-                    font_style: "H6"
-                    bold: True
-                    halign: "center"
-
-                MDCard:
-                    orientation: 'vertical'
-                    padding: "16dp"
-                    size_hint_y: None
-                    height: "220dp"
-                    md_bg_color: 0.12, 0.16, 0.23, 1
-
-                    MDLabel:
-                        text: "Status: Monitoring Active"
-                        theme_text_color: "Custom"
-                        text_color: 0, 1, 0.5, 1
-                        bold: True
-                        size_hint_y: None
-                        height: "30dp"
-
-                    MDLabel:
-                        text: "Cyber Shield auto-detects when screenshots are taken and alerts you if sensitive data was captured."
-                        font_style: "Caption"
-                        size_hint_y: None
-                        height: "80dp"
-
-                    MDRaisedButton:
-                        text: "Speak Precautions"
-                        on_release: app.speak_screenshot_precautions()
-                        size_hint_y: None
-                        height: "48dp"
-
-        MDBottomNavigationItem:
-            name: 'security'
-            text: 'Security'
-            icon: 'lock-check'
-
-            MDBoxLayout:
-                orientation: 'vertical'
-                padding: "16dp"
-                spacing: "12dp"
-
-                MDLabel:
-                    text: "Device Security"
-                    font_style: "H6"
-                    bold: True
-                    halign: "center"
-
-                MDRaisedButton:
-                    text: "Check Permissions"
-                    on_release: app.check_device_permissions()
-                    size_hint_y: None
-                    height: "48dp"
-
-                MDRaisedButton:
-                    text: "Read Precautions Aloud"
-                    on_release: app.speak_general_precautions()
-                    size_hint_y: None
-                    height: "48dp"
-
-                ScrollView:
-                    MDBoxLayout:
-                        id: security_tips
-                        orientation: 'vertical'
-                        size_hint_y: None
-                        height: self.minimum_height
-                        spacing: "8dp"
-"""
-
-
-class CyberShieldApp(MDApp):
+# -------------------------------------------------------------
+# MAIN KIVY UI APPLICATION
+# -------------------------------------------------------------
+class CyberShieldProApp(MDApp):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.threat_engine = ThreatEngine()
-        self.tts_enabled = True
-        self.last_screenshot_check = datetime.now()
+        self.lang = "en"
+        self.scan_history = []
+        self.last_screenshot_time = time.time()
+        self.last_clipboard = ""
 
     def build(self):
         self.theme_cls.theme_style = "Dark"
-        self.theme_cls.primary_palette = "Cyan"
-        return Builder.load_string(KV)
+        self.theme_cls.primary_palette = "Green"
+        self.theme_cls.primary_hue = "A400"
+        Window.clearcolor = (0.03, 0.06, 0.04, 1)
+
+        # Schedule background monitors
+        Clock.schedule_interval(self.check_recent_screenshots, 6)
+        Clock.schedule_interval(self.check_clipboard, 4)
+
+        return Builder.load_string(KV_LAYOUT)
 
     def on_start(self):
-        if ANDROID_READY:
-            self.request_android_permissions()
-            Clock.schedule_interval(self.check_recent_screenshots, 5)
-        Clock.schedule_once(lambda dt: self.load_security_tips(), 0.5)
+        self.root.ids.top_bar.right_action_items = [
+            ["translate", lambda x: self.toggle_language()],
+            ["shield-half-full", lambda x: self.show_toast("Shield Protection ACTIVE")]
+        ]
 
-    def request_android_permissions(self):
-        try:
-            permissions = [
-                Permission.READ_EXTERNAL_STORAGE,
-                Permission.WRITE_EXTERNAL_STORAGE,
-                Permission.INTERNET,
-            ]
-            request_permissions(permissions)
-        except Exception as e:
-            print(f"Permission error: {e}")
+    def toggle_language(self):
+        self.lang = "hi" if self.lang == "en" else "en"
+        t = TEXTS[self.lang]
+        
+        self.root.ids.app_title_lbl.text = t["app_title"]
+        self.root.ids.tagline_lbl.text = t["tagline"]
+        self.root.ids.sub_tagline_lbl.text = t["sub_tagline"]
+        self.root.ids.start_analyze_btn.text = t["analyze_btn"]
+        self.root.ids.helpline_btn.text = t["helpline_btn"]
+        
+        self.show_toast(f"Switched to {t['lang_toggle']}")
 
-    def toggle_tts(self):
-        self.tts_enabled = not self.tts_enabled
-        status = "enabled" if self.tts_enabled else "disabled"
-        MDSnackbar(MDLabel(text=f"Voice alerts {status}")).open()
+    def show_toast(self, text):
+        Snackbar(text=text, duration=2).open()
 
     def speak(self, text):
-        if not self.tts_enabled:
-            return
-        if ANDROID_READY:
+        if PLYER_AVAILABLE:
             try:
                 tts.speak(text)
             except Exception as e:
-                print(f"TTS error: {e}")
+                self.show_toast("TTS Error: " + str(e))
         else:
-            print(f"[SPEECH]: {text}")
+            self.show_toast("Voice Alert: " + text[:30] + "...")
 
-    def paste_and_scan(self):
-        pasted = ""
-        if ANDROID_READY:
-            try:
-                pasted = clipboard.paste() or ""
-            except Exception:
-                pass
-        if pasted:
-            self.root.ids.link_input.text = pasted
-            self.scan_text(pasted)
+    def run_analysis(self):
+        input_text = self.root.ids.scan_input.text
+        if not input_text.strip():
+            self.show_toast("Please enter or paste text to analyze.")
+            return
+
+        res = ThreatEngine.analyze(input_text)
+        t = TEXTS[self.lang]
+        score = res["score"]
+        level = res["level"]
+
+        self.scan_history.append({"text": input_text[:40], "score": score, "level": level, "time": datetime.now().strftime("%H:%M:%S")})
+
+        result_card = self.root.ids.result_card
+        score_lbl = self.root.ids.score_lbl
+        level_lbl = self.root.ids.level_lbl
+        details_lbl = self.root.ids.details_lbl
+        precautions_lbl = self.root.ids.precautions_lbl
+
+        score_lbl.text = f"RISK SCORE: {score} / 100"
+        
+        if level == "CRITICAL":
+            level_lbl.text = t["risk_critical"]
+            level_lbl.theme_text_color = "Custom"
+            level_lbl.text_color = (1, 0.2, 0.2, 1)
+            result_card.md_bg_color = (0.2, 0.05, 0.05, 1)
+            speech = "Warning! Critical scam detected. Do not click links or share OTP." if self.lang == "en" else "चेतावनी! गंभीर स्कैम की पुष्टि हुई है।"
+            self.speak(speech)
+            if PLYER_AVAILABLE:
+                try: vibrator.vibrate(1)
+                except: pass
+        elif level == "HIGH":
+            level_lbl.text = t["risk_high"]
+            level_lbl.theme_text_color = "Custom"
+            level_lbl.text_color = (1, 0.6, 0.1, 1)
+            result_card.md_bg_color = (0.2, 0.12, 0.02, 1)
+            self.speak("Caution! High risk message detected.")
+        elif level == "MEDIUM":
+            level_lbl.text = t["risk_medium"]
+            level_lbl.theme_text_color = "Custom"
+            level_lbl.text_color = (1, 0.9, 0.2, 1)
+            result_card.md_bg_color = (0.15, 0.15, 0.03, 1)
         else:
-            MDSnackbar(MDLabel(text="Clipboard is empty")).open()
+            level_lbl.text = t["risk_safe"]
+            level_lbl.theme_text_color = "Custom"
+            level_lbl.text_color = (0.2, 1, 0.4, 1)
+            result_card.md_bg_color = (0.03, 0.15, 0.05, 1)
 
-    def scan_manual_input(self):
-        text = self.root.ids.link_input.text.strip()
-        if text:
-            self.scan_text(text)
-        else:
-            MDSnackbar(MDLabel(text="Please enter text first")).open()
+        details_lbl.text = "\n".join([f"- {flag}" for flag in res["flags"]])
+        precautions_lbl.text = f"{t['precautions_title']}\n{t['precaution_1']}\n{t['precaution_2']}\n{t['precaution_3']}\n{t['precaution_4']}"
 
-    def scan_text(self, text):
-        urls = re.findall(r"http[s]?://[^\s]+", text)
-        container = self.root.ids.results_container
+    def run_comparison(self):
+        msg1 = self.root.ids.comp_input_1.text
+        msg2 = self.root.ids.comp_input_2.text
+
+        if not msg1 or not msg2:
+            self.show_toast("Please enter both messages to compare.")
+            return
+
+        res1 = ThreatEngine.analyze(msg1)
+        res2 = ThreatEngine.analyze(msg2)
+
+        comp_lbl = self.root.ids.comp_result_lbl
+        comp_lbl.text = (
+            f"MESSAGE A: Risk Score {res1['score']}/100 [{res1['level']}]\n"
+            f"MESSAGE B: Risk Score {res2['score']}/100 [{res2['level']}]\n\n"
+            f"VERDICT: " + ("Message A is riskier!" if res1['score'] > res2['score'] else "Message B is riskier!" if res2['score'] > res1['score'] else "Both messages have equal risk level.")
+        )
+
+    def refresh_dashboard(self):
+        container = self.root.ids.history_list
         container.clear_widgets()
 
-        if urls:
-            for url in urls:
-                result = self.threat_engine.analyze_link(url)
-                self.add_result_card(result)
-                if not result["is_safe"]:
-                    self.speak(f"Alert! Risk level {result['risk_level']}. {result['reasons'][0]}")
-        
-        text_result = self.threat_engine.analyze_text(text)
-        if text_result["is_scam"]:
-            self.add_text_result_card(text_result)
-            self.speak(f"Scam alert! Risk level {text_result['risk_level']}")
-        elif not urls:
-            self.add_text_result_card(text_result)
+        if not self.scan_history:
+            container.add_widget(OneLineIconListItem(text="No scan history recorded yet."))
+            return
 
-    def add_result_card(self, result):
-        container = self.root.ids.results_container
-        bg_color = (0.3, 0.05, 0.05, 1) if not result["is_safe"] else (0.05, 0.3, 0.1, 1)
-        text_color = (1, 0.3, 0.3, 1) if not result["is_safe"] else (0.3, 1, 0.5, 1)
-        
-        card = MDCard(
-            orientation="vertical", padding="12dp",
-            size_hint_y=None, height="170dp",
-            md_bg_color=bg_color
-        )
-        card.add_widget(MDLabel(
-            text=f"{'SCAM ALERT' if not result['is_safe'] else 'SAFE'} - {result['risk_level']}",
-            bold=True, theme_text_color="Custom", text_color=text_color,
-            size_hint_y=None, height="30dp"
-        ))
-        card.add_widget(MDLabel(
-            text=f"URL: {result['url'][:50]}",
-            font_style="Caption", size_hint_y=None, height="25dp"
-        ))
-        card.add_widget(MDLabel(
-            text=f"Score: {result['risk_score']}/100",
-            font_style="Caption", size_hint_y=None, height="25dp"
-        ))
-        card.add_widget(MDLabel(
-            text="\n".join(result["reasons"][:2]),
-            font_style="Caption", size_hint_y=None, height="40dp"
-        ))
-        card.add_widget(MDRaisedButton(
-            text="Read Warning",
-            on_release=lambda x: self.speak("Warning: " + ". ".join(result["reasons"])),
-            size_hint_y=None, height="40dp"
-        ))
-        container.add_widget(card)
-
-    def add_text_result_card(self, result):
-        container = self.root.ids.results_container
-        bg_color = (0.3, 0.05, 0.05, 1) if result["is_scam"] else (0.05, 0.3, 0.1, 1)
-        
-        card = MDCard(
-            orientation="vertical", padding="12dp",
-            size_hint_y=None, height="120dp",
-            md_bg_color=bg_color
-        )
-        card.add_widget(MDLabel(
-            text=f"Text Analysis: {result['risk_level']}",
-            bold=True, size_hint_y=None, height="30dp"
-        ))
-        card.add_widget(MDLabel(
-            text=f"Patterns detected: {', '.join(result['matched']) if result['matched'] else 'None'}",
-            font_style="Caption", size_hint_y=None, height="50dp"
-        ))
-        container.add_widget(card)
+        for item in reversed(self.scan_history):
+            icon = IconLeftWidget(icon="alert-decagram" if item["score"] >= 40 else "shield-check")
+            list_item = OneLineIconListItem(
+                text=f"[{item['time']}] {item['text']}... ({item['score']}/100)",
+                on_release=lambda x, it=item: self.show_toast(f"Score: {it['score']} Level: {it['level']}")
+            )
+            list_item.add_widget(icon)
+            container.add_widget(list_item)
 
     def check_recent_screenshots(self, dt):
-        if not ANDROID_READY:
+        if not IS_ANDROID:
             return
-        screenshot_dirs = [
+
+        dirs = [
             "/sdcard/Pictures/Screenshots",
             "/sdcard/DCIM/Screenshots",
             "/storage/emulated/0/Pictures/Screenshots"
         ]
-        for ss_dir in screenshot_dirs:
-            if os.path.exists(ss_dir):
+
+        now = time.time()
+        for folder in dirs:
+            if os.path.exists(folder):
                 try:
-                    files = os.listdir(ss_dir)
-                    now = datetime.now()
-                    for f in files:
-                        full_path = os.path.join(ss_dir, f)
-                        mtime = datetime.fromtimestamp(os.path.getmtime(full_path))
-                        if (now - mtime).total_seconds() < 6 and mtime > self.last_screenshot_check:
-                            self.trigger_screenshot_alert(f)
-                            self.last_screenshot_check = now
-                            return
-                except Exception:
-                    pass
-        self.last_screenshot_check = datetime.now()
+                    for f in os.listdir(folder):
+                        fpath = os.path.join(folder, f)
+                        if os.path.isfile(fpath):
+                            mtime = os.path.getmtime(fpath)
+                            if mtime > self.last_screenshot_time:
+                                self.last_screenshot_time = now
+                                self.trigger_screenshot_alert(f)
+                                break
+                except Exception as e:
+                    print("Error checking screenshots:", e)
 
     def trigger_screenshot_alert(self, filename):
-        self.speak("Warning! Screenshot detected. Ensure no sensitive information was captured.")
-        MDSnackbar(MDLabel(text=f"Screenshot: {filename}")).open()
+        alert_lbl = self.root.ids.sc_log_lbl
+        alert_lbl.text = f"SCREENSHOT DETECTED: {filename}\nTimestamp: {datetime.now().strftime('%H:%M:%S')}\n\nPrecaution: Verify that sensitive OTPs or QR codes are not visible."
+        
+        if PLYER_AVAILABLE:
+            try:
+                notification.notify(title="Cyber Shield Alert", message="Screenshot detected! Protect confidential data.")
+                vibrator.vibrate(1)
+            except: pass
+        self.speak("Screenshot detected! Protect confidential data.")
 
-    def speak_screenshot_precautions(self):
-        text = "Screenshot precautions. First, close sensitive apps. Second, check which apps have screen permissions. Third, do not share unverified screen captures."
-        self.speak(text)
-        MDSnackbar(MDLabel(text="Reading precautions aloud...")).open()
+    def check_clipboard(self, dt):
+        if not PLYER_AVAILABLE:
+            return
+        try:
+            content = clipboard.paste()
+            if content and content != self.last_clipboard:
+                self.last_clipboard = content
+                if any(kw in content.lower() for kw in ["http://", "https://", "www.", ".xyz", ".top"]):
+                    cb_lbl = self.root.ids.cb_log_lbl
+                    cb_lbl.text = f"COPIED LINK DETECTED:\n{content}\n\nAuto Analysis: High-priority link scan queued."
+                    self.root.ids.scan_input.text = content
+                    self.show_toast("Link detected in clipboard! Auto-filled in scanner.")
+        except Exception:
+            pass
 
-    def speak_general_precautions(self):
-        text = "Security precautions. Use strong passwords. Enable two factor authentication. Keep your device updated. Never share personal information with strangers. Be cautious of urgent messages asking for money."
-        self.speak(text)
-        MDSnackbar(MDLabel(text="Reading precautions...")).open()
+    def call_1930(self):
+        self.show_toast("Initiating Call to Emergency Helpline 1930...")
+        if IS_ANDROID:
+            try:
+                from jnius import autoclass
+                Intent = autoclass('android.content.Intent')
+                Uri = autoclass('android.net.Uri')
+                intent = Intent(Intent.ACTION_DIAL)
+                intent.setData(Uri.parse("tel:1930"))
+                currentActivity = autoclass('org.kivy.android.PythonActivity').mActivity
+                currentActivity.startActivity(intent)
+            except Exception as e:
+                self.show_toast("Dialer error: " + str(e))
 
-    def check_device_permissions(self):
-        if ANDROID_READY:
-            MDSnackbar(MDLabel(text="Permissions granted!")).open()
-        else:
-            MDSnackbar(MDLabel(text="Running in demo mode")).open()
+# -------------------------------------------------------------
+# KIVY KV DESIGN LANGUAGE (Matrix Green Cyberpunk Theme)
+# -------------------------------------------------------------
+KV_LAYOUT = '''
+MDScreen:
+    MDBoxLayout:
+        orientation: 'vertical'
 
-    def load_security_tips(self):
-        tips = [
-            "Enable screen lock with strong PIN",
-            "Keep your OS updated regularly",
-            "Install antivirus software",
-            "Use VPN on public Wi-Fi networks",
-            "Enable 2FA on all important accounts",
-            "Never share passwords via email",
-            "Check URLs before clicking",
-            "Only download apps from Play Store"
-        ]
-        container = self.root.ids.security_tips
-        for tip in tips:
-            card = MDCard(
-                padding="10dp", size_hint_y=None, height="50dp",
-                md_bg_color=(0.12, 0.16, 0.23, 1)
-            )
-            card.add_widget(MDLabel(text=tip, font_style="Body2"))
-            container.add_widget(card)
+        MDTopAppBar:
+            id: top_bar
+            title: "CYBER SHIELD PRO"
+            elevation: 4
+            md_bg_color: 0.05, 0.15, 0.08, 1
+            specific_text_color: 0, 1, 0.4, 1
 
+        MDBottomNavigation:
+            selected_color_background: 0, 0.3, 0.1, 0.5
+            text_color_active: 0, 1, 0.4, 1
+            panel_color: 0.04, 0.1, 0.06, 1
 
-if __name__ == "__main__":
-    CyberShieldApp().run()
+            MDBottomNavigationItem:
+                name: 'home_tab'
+                text: 'Home'
+                icon: 'shield-home'
+
+                MDScrollView:
+                    MDBoxLayout:
+                        orientation: 'vertical'
+                        padding: dp(20)
+                        spacing: dp(15)
+                        adaptive_height: True
+
+                        MDCard:
+                            orientation: 'vertical'
+                            padding: dp(20)
+                            spacing: dp(10)
+                            radius: [15]
+                            md_bg_color: 0.06, 0.14, 0.09, 1
+                            line_color: 0, 1, 0.4, 0.4
+
+                            MDIconButton:
+                                icon: "shield-lock"
+                                user_font_size: "64sp"
+                                pos_hint: {"center_x": .5}
+                                theme_text_color: "Custom"
+                                text_color: 0, 1, 0.4, 1
+
+                            MDLabel:
+                                id: app_title_lbl
+                                text: "CYBER SHIELD PRO"
+                                font_style: "H4"
+                                halign: "center"
+                                bold: True
+                                theme_text_color: "Custom"
+                                text_color: 0, 1, 0.4, 1
+
+                            MDLabel:
+                                id: tagline_lbl
+                                text: "PAUSE - CHECK - PROTECT"
+                                font_style: "Subtitle1"
+                                halign: "center"
+                                bold: True
+                                theme_text_color: "Custom"
+                                text_color: 0, 0.8, 0.5, 1
+
+                            MDLabel:
+                                id: sub_tagline_lbl
+                                text: "First-line digital safety assistant. Detect scam SMS, UPI requests, phone calls & risky links."
+                                font_style: "Body2"
+                                halign: "center"
+                                theme_text_color: "Custom"
+                                text_color: 0.7, 0.9, 0.7, 1
+
+                        MDBoxLayout:
+                            spacing: dp(10)
+                            adaptive_height: True
+
+                            MDFillRoundFlatButton:
+                                id: start_analyze_btn
+                                text: "Start Analyzing"
+                                icon: "magnify"
+                                md_bg_color: 0, 0.8, 0.3, 1
+                                text_color: 0, 0, 0, 1
+                                size_hint_x: 0.5
+                                on_release: scan_input.focus = True
+
+                            MDFillRoundFlatButton:
+                                id: helpline_btn
+                                text: "Helpline 1930"
+                                icon: "phone-alert"
+                                md_bg_color: 0.9, 0.2, 0.2, 1
+                                text_color: 1, 1, 1, 1
+                                size_hint_x: 0.5
+                                on_release: app.call_1930()
+
+                        MDGridLayout:
+                            cols: 2
+                            spacing: dp(10)
+                            adaptive_height: True
+
+                            MDCard:
+                                padding: dp(15)
+                                md_bg_color: 0.05, 0.12, 0.07, 1
+                                radius: [10]
+                                orientation: 'vertical'
+                                MDLabel:
+                                    text: "SMART SCAN"
+                                    bold: True
+                                    theme_text_color: "Custom"
+                                    text_color: 0, 1, 0.4, 1
+                                MDLabel:
+                                    text: "Bilingual Scam Rule Engine"
+                                    font_style: "Caption"
+
+                            MDCard:
+                                padding: dp(15)
+                                md_bg_color: 0.05, 0.12, 0.07, 1
+                                radius: [10]
+                                orientation: 'vertical'
+                                MDLabel:
+                                    text: "LOCAL PRIVACY"
+                                    bold: True
+                                    theme_text_color: "Custom"
+                                    text_color: 0, 1, 0.4, 1
+                                MDLabel:
+                                    text: "100% On-Device Analysis"
+                                    font_style: "Caption"
+
+            MDBottomNavigationItem:
+                name: 'analyze_tab'
+                text: 'Analyze'
+                icon: 'magnify-scan'
+
+                MDScrollView:
+                    MDBoxLayout:
+                        orientation: 'vertical'
+                        padding: dp(20)
+                        spacing: dp(15)
+                        adaptive_height: True
+
+                        MDTextField:
+                            id: scan_input
+                            hint_text: "Paste SMS, UPI request, or Link here..."
+                            mode: "rectangle"
+                            multiline: True
+                            max_height: dp(120)
+
+                        MDBoxLayout:
+                            spacing: dp(10)
+                            adaptive_height: True
+
+                            MDRaisedButton:
+                                text: "ANALYZE THREAT"
+                                md_bg_color: 0, 0.8, 0.3, 1
+                                text_color: 0, 0, 0, 1
+                                size_hint_x: 0.7
+                                on_release: app.run_analysis()
+
+                            MDRectangleFlatButton:
+                                text: "CLEAR"
+                                size_hint_x: 0.3
+                                on_release: scan_input.text = ""
+
+                        MDCard:
+                            id: result_card
+                            orientation: 'vertical'
+                            padding: dp(15)
+                            spacing: dp(8)
+                            radius: [10]
+                            md_bg_color: 0.04, 0.1, 0.06, 1
+                            adaptive_height: True
+
+                            MDLabel:
+                                id: score_lbl
+                                text: "RISK SCORE: -- / 100"
+                                font_style: "H6"
+                                bold: True
+
+                            MDLabel:
+                                id: level_lbl
+                                text: "Awaiting analysis..."
+                                font_style: "Subtitle1"
+
+                            MDLabel:
+                                id: details_lbl
+                                text: "Threat indicators will appear here."
+                                font_style: "Body2"
+
+                            MDLabel:
+                                id: precautions_lbl
+                                text: ""
+                                font_style: "Caption"
+                                theme_text_color: "Custom"
+                                text_color: 0.8, 0.8, 0.8, 1
+
+            MDBottomNavigationItem:
+                name: 'compare_tab'
+                text: 'Compare'
+                icon: 'compare-horizontal'
+
+                MDScrollView:
+                    MDBoxLayout:
+                        orientation: 'vertical'
+                        padding: dp(20)
+                        spacing: dp(12)
+                        adaptive_height: True
+
+                        MDLabel:
+                            text: "Message Risk Comparison"
+                            font_style: "H6"
+                            theme_text_color: "Custom"
+                            text_color: 0, 1, 0.4, 1
+
+                        MDTextField:
+                            id: comp_input_1
+                            hint_text: "Message A (e.g. Received SMS)"
+                            mode: "rectangle"
+
+                        MDTextField:
+                            id: comp_input_2
+                            hint_text: "Message B (e.g. Official Bank SMS)"
+                            mode: "rectangle"
+
+                        MDRaisedButton:
+                            text: "COMPARE BOTH MESSAGES"
+                            md_bg_color: 0, 0.8, 0.3, 1
+                            text_color: 0, 0, 0, 1
+                            on_release: app.run_comparison()
+
+                        MDCard:
+                            padding: dp(15)
+                            md_bg_color: 0.04, 0.1, 0.06, 1
+                            radius: [10]
+                            adaptive_height: True
+
+                            MDLabel:
+                                id: comp_result_lbl
+                                text: "Enter two messages above and click compare."
+                                font_style: "Body1"
+
+            MDBottomNavigationItem:
+                name: 'dash_tab'
+                text: 'Dashboard'
+                icon: 'view-dashboard'
+                on_tab_press: app.refresh_dashboard()
+
+                MDBoxLayout:
+                    orientation: 'vertical'
+                    padding: dp(15)
+                    spacing: dp(10)
+
+                    MDLabel:
+                        text: "Threat Scan History & Stats"
+                        font_style: "H6"
+                        adaptive_height: True
+                        theme_text_color: "Custom"
+                        text_color: 0, 1, 0.4, 1
+
+                    MDScrollView:
+                        MDList:
+                            id: history_list
+
+            MDBottomNavigationItem:
+                name: 'report_tab'
+                text: 'Report 1930'
+                icon: 'phone-alert'
+
+                MDScrollView:
+                    MDBoxLayout:
+                        orientation: 'vertical'
+                        padding: dp(20)
+                        spacing: dp(15)
+                        adaptive_height: True
+
+                        MDCard:
+                            orientation: 'vertical'
+                            padding: dp(20)
+                            spacing: dp(10)
+                            md_bg_color: 0.15, 0.04, 0.04, 1
+                            radius: [12]
+
+                            MDLabel:
+                                text: "National Cybercrime Helpline 1930"
+                                font_style: "H6"
+                                bold: True
+                                theme_text_color: "Custom"
+                                text_color: 1, 0.3, 0.3, 1
+
+                            MDLabel:
+                                text: "1. Dial 1930 immediately if you lost money in a financial fraud."
+                                font_style: "Body2"
+
+                            MDLabel:
+                                text: "2. Have your bank account number and UPI transaction ID ready."
+                                font_style: "Body2"
+
+                            MDLabel:
+                                text: "3. File a formal complaint at cybercrime.gov.in."
+                                font_style: "Body2"
+
+                            MDFillRoundFlatButton:
+                                text: "CALL 1930 NOW"
+                                md_bg_color: 0.9, 0.1, 0.1, 1
+                                pos_hint: {"center_x": .5}
+                                on_release: app.call_1930()
+
+                        MDCard:
+                            orientation: 'vertical'
+                            padding: dp(15)
+                            spacing: dp(8)
+                            md_bg_color: 0.04, 0.1, 0.06, 1
+                            radius: [10]
+
+                            MDLabel:
+                                text: "Screenshot Monitor Log"
+                                font_style: "Subtitle1"
+                                bold: True
+                                theme_text_color: "Custom"
+                                text_color: 0, 1, 0.4, 1
+
+                            MDLabel:
+                                id: sc_log_lbl
+                                text: "No recent screenshot alerts."
+                                font_style: "Caption"
+
+                        MDCard:
+                            orientation: 'vertical'
+                            padding: dp(15)
+                            spacing: dp(8)
+                            md_bg_color: 0.04, 0.1, 0.06, 1
+                            radius: [10]
+
+                            MDLabel:
+                                text: "Clipboard Link Monitor"
+                                font_style: "Subtitle1"
+                                bold: True
+                                theme_text_color: "Custom"
+                                text_color: 0, 1, 0.4, 1
+
+                            MDLabel:
+                                id: cb_log_lbl
+                                text: "No suspicious links copied recently."
+                                font_style: "Caption"
+
+'''
+
+if __name__ == '__main__':
+    CyberShieldProApp().run()
