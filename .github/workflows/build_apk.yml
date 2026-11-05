@@ -66,22 +66,15 @@ jobs:
         pip install --upgrade pip
         pip install buildozer==1.5.0 cython==0.29.33 kivy==2.3.0 virtualenv
 
-    - name: Cache Buildozer Global Directory
-      uses: actions/cache@v4
-      with:
-        path: ~/.buildozer
-        key: ${{ runner.os }}-buildozer-${{ hashFiles('mobile_app/buildozer.spec') }}
-        restore-keys: |
-          ${{ runner.os }}-buildozer-
-
-    - name: Build APK with Buildozer
+    - name: Clean & Build Fresh APK with Buildozer
       run: |
         cd mobile_app
+        buildozer android clean
         buildozer android debug
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: CyberShield-APK
+        name: CyberShield-Pro-v2-APK
         path: mobile_app/bin/*.apk
         retention-days: 30
