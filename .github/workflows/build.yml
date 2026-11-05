@@ -59,12 +59,14 @@ jobs:
         pip install --upgrade pip
         pip install buildozer==1.5.0 cython==0.29.33 kivy==2.3.0 virtualenv
 
-    - name: Auto Accept Licenses & Build APK
+    - name: Build APK with Buildozer
+      env:
+        APP_ANDROID_ACCEPT_SDK_LICENSES: '1'
       run: |
         mkdir -p ~/.android
         touch ~/.android/repositories.cfg
         cd mobile_app
-        yes | buildozer android debug
+        buildozer android debug
 
     - name: Upload Cyber Shield Pro Matrix APK
       uses: actions/upload-artifact@v4

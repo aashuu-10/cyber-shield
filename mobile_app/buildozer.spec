@@ -5,7 +5,7 @@ package.domain = org.cyphracodes
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
 version = 2.0.0
-requirements = python3,kivy==2.3.0,kivymd==1.2.0,plyer,pyjnius,requests,urllib3,certifi,chardet,idna
+requirements = python3,kivy==2.3.0,kivymd==1.2.0,plyer,requests,urllib3,certifi,chardet,idna
 orientation = portrait
 osx.kivy_version = 2.3.0
 
@@ -16,7 +16,7 @@ android.minapi = 21
 android.ndk = 25b
 android.build_tools_version = 33.0.2
 android.accept_sdk_license = True
-android.archs = arm64-v8a,armeabi-v7a
+android.archs = arm64-v8a
 android.release_artifact = apk
 android.enable_androidx = True
 

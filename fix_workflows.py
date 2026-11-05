@@ -1,4 +1,4 @@
-﻿import os
+import os
 import shutil
 
 # 1. Clean out existing workflow directory to remove conflicting build.yml

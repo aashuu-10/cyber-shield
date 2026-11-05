@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 # 1. Update Workflow to Disable Cache for a Clean Build
 workflow_code = """name: Build Android APK

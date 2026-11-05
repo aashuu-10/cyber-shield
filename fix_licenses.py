@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 # 1. Update mobile_app/buildozer.spec with License Acceptance & Pinned Build Tools
 spec_content = """[app]

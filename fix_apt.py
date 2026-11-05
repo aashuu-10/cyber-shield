@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 workflow_content = """name: Build Cyber Shield Pro APK
 
