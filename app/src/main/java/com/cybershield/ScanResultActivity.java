@@ -1,4 +1,4 @@
-﻿package com.cybershield;
+package com.cybershield;
 
 import android.os.Bundle;
 import android.widget.Button;

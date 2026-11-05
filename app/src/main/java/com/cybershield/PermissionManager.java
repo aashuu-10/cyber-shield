@@ -1,4 +1,4 @@
-﻿package com.cybershield;
+package com.cybershield;
 
 import android.Manifest;
 import android.content.Context;

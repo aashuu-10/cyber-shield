@@ -1,4 +1,4 @@
-﻿package com.cybershield;
+package com.cybershield;
 
 import android.app.Application;
 import android.app.NotificationChannel;

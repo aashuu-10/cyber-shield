@@ -1,4 +1,4 @@
-﻿package com.cybershield;
+package com.cybershield;
 
 import android.app.Notification;
 import android.app.Service;
