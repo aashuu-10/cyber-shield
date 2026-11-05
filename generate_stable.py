@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 main_py_content = """import os
 import re
