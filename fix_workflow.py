@@ -35,7 +35,7 @@ jobs:
           ffmpeg \\
           libsdl2-dev \\
           libsdl2-image-dev \\
-          libsdl2-mixin-dev \\
+          libsdl2-mixer-dev \\
           libsdl2-ttf-dev \\
           libportmidi-dev \\
           libswscale-dev \\
@@ -93,4 +93,4 @@ os.makedirs(".github/workflows", exist_ok=True)
 with open(".github/workflows/build_apk.yml", "w", encoding="utf-8") as f:
     f.write(workflow_code)
 
-print("SUCCESS: Updated .github/workflows/build_apk.yml with compatible dependencies!")
+print("SUCCESS: Fixed typo in .github/workflows/build_apk.yml")
