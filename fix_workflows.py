@@ -1,0 +1,96 @@
+﻿import os
+import shutil
+
+# 1. Clean out existing workflow directory to remove conflicting build.yml
+workflows_dir = ".github/workflows"
+if os.path.exists(workflows_dir):
+    shutil.rmtree(workflows_dir)
+
+os.makedirs(workflows_dir, exist_ok=True)
+
+# 2. Write a single clean build.yml that builds ONLY mobile_app with Buildozer
+workflow_content = """name: Build Cyber Shield Pro APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \\
+          build-essential \\
+          git \\
+          python3-dev \\
+          ffmpeg \\
+          libsdl2-dev \\
+          libsdl2-image-dev \\
+          libsdl2-mixer-dev \\
+          libsdl2-ttf-dev \\
+          libportmidi-dev \\
+          libswscale-dev \\
+          libavformat-dev \\
+          libavcodec-dev \\
+          zlib1g-dev \\
+          libgstreamer1.0-dev \\
+          gstreamer1.0-plugins-base \\
+          gstreamer1.0-plugins-good \\
+          libsqlite3-dev \\
+          sqlite3 \\
+          bzip2 \\
+          libbz2-dev \\
+          libssl-dev \\
+          openssl \\
+          libgdbm-dev \\
+          libgdbm-compat-dev \\
+          liblzma-dev \\
+          libffi-dev \\
+          libncurses-dev \\
+          zip \\
+          unzip \\
+          autoconf \\
+          libtool \\
+          cmake \\
+          pkg-config
+
+    - name: Install Buildozer & Dependencies
+      run: |
+        pip install --upgrade pip
+        pip install buildozer==1.5.0 cython==0.29.33 kivy==2.3.0 virtualenv
+
+    - name: Build Kivy Python APK
+      run: |
+        cd mobile_app
+        buildozer android debug
+
+    - name: Upload Cyber Shield Pro Matrix APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: CyberShield-Pro-Matrix-APK
+        path: mobile_app/bin/*.apk
+        retention-days: 30
+"""
+
+with open(os.path.join(workflows_dir, "build.yml"), "w", encoding="utf-8") as f:
+    f.write(workflow_content)
+
+print("SUCCESS: Cleaned up old workflows and created single Kivy Buildozer workflow!")
