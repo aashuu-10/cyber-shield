@@ -1,0 +1,14 @@
+flask
+flask-socketio
+requests
+pyttsx3
+Pillow
+watchdog
+pyperclip
+psutil
+validators
+urllib3
+beautifulsoup4
+dnspython
+tldextract
+eventlet

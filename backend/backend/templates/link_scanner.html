@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cyber Shield - Scanner</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand"><i class="fas fa-shield-alt"></i> Cyber Shield</div>
+        <div class="nav-links">
+            <a href="/"><i class="fas fa-home"></i> Home</a>
+            <a href="/dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+            <a href="/scanner" class="active"><i class="fas fa-search"></i> Scanner</a>
+            <a href="/permissions"><i class="fas fa-lock"></i> Security</a>
+            <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
+        </div>
+    </nav>
+    <div class="container">
+        <h1>Advanced Link & Text Scanner</h1>
+        <div class="scanner-section">
+            <input type="text" id="scannerUrl" class="scan-input" placeholder="Enter URL to scan...">
+            <button onclick="fullScanUrl()" class="btn btn-primary">Scan URL</button>
+            <div id="fullResults" class="result-card hidden"></div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
