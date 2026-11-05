@@ -66,7 +66,7 @@ jobs:
         mkdir -p ~/.android
         touch ~/.android/repositories.cfg
         cd mobile_app
-        buildozer android debug
+        buildozer -v android debug
 
     - name: Upload Cyber Shield Pro Matrix APK
       uses: actions/upload-artifact@v4

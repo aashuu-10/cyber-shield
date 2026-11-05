@@ -10,20 +10,15 @@ from kivy.utils import platform
 
 from kivymd.app import MDApp
 from kivymd.uix.snackbar import Snackbar
-from kivymd.uix.list import OneLineIconListItem, IconLeftWidget
 
-# Safe Plyer Imports
 try:
-    from plyer import tts, clipboard, vibrator, notification
+    from plyer import tts, clipboard, vibrator
     PLYER_AVAILABLE = True
 except Exception:
     PLYER_AVAILABLE = False
 
 IS_ANDROID = (platform == "android")
 
-# -------------------------------------------------------------
-# THREAT ENGINE
-# -------------------------------------------------------------
 class ThreatEngine:
     SUSPICIOUS_KEYWORDS = [
         "lottery", "winner", "prize", "urgent", "blocked", "kyc", "verify",
@@ -75,13 +70,9 @@ class ThreatEngine:
 
         return {"score": score, "level": level, "flags": flags if flags else ["No suspicious patterns found."]}
 
-# -------------------------------------------------------------
-# MAIN APP CLASS
-# -------------------------------------------------------------
 class CyberShieldProApp(MDApp):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.scan_history = []
         self.last_screenshot_time = time.time()
         self.last_clipboard = ""
 
@@ -132,8 +123,6 @@ class CyberShieldProApp(MDApp):
         score = res["score"]
         level = res["level"]
 
-        self.scan_history.append({"text": input_text[:30], "score": score, "level": level, "time": datetime.now().strftime("%H:%M:%S")})
-
         self.root.ids.score_lbl.text = f"RISK SCORE: {score} / 100"
         self.root.ids.level_lbl.text = f"STATUS: {level}"
 
@@ -155,8 +144,7 @@ class CyberShieldProApp(MDApp):
             self.root.ids.level_lbl.text_color = (0.2, 1, 0.4, 1)
             self.root.ids.result_card.md_bg_color = (0.03, 0.15, 0.05, 1)
 
-        self.root.ids.details_lbl.text = "
-".join([f"• {flag}" for flag in res["flags"]])
+        self.root.ids.details_lbl.text = "\n".join([f"- {flag}" for flag in res["flags"]])
 
     def clear_input(self):
         self.root.ids.scan_input.text = ""
@@ -172,7 +160,7 @@ class CyberShieldProApp(MDApp):
                         fpath = os.path.join(folder, f)
                         if os.path.isfile(fpath) and os.path.getmtime(fpath) > self.last_screenshot_time:
                             self.last_screenshot_time = now
-                            self.root.ids.sc_log_lbl.text = f"📸 SCREENSHOT: {f} ({datetime.now().strftime('%H:%M:%S')})"
+                            self.root.ids.sc_log_lbl.text = f"SCREENSHOT DETECTED: {f}"
                             self.speak("Screenshot detected! Verify confidential data is safe.")
                             return
                 except Exception:
@@ -185,7 +173,7 @@ class CyberShieldProApp(MDApp):
             if content and content != self.last_clipboard:
                 self.last_clipboard = content
                 if "http" in content.lower():
-                    self.root.ids.cb_log_lbl.text = f"📋 COPIED LINK: {content}"
+                    self.root.ids.cb_log_lbl.text = f"COPIED LINK: {content}"
                     self.root.ids.scan_input.text = content
                     self.show_toast("Link detected in clipboard!")
         except Exception:
@@ -205,9 +193,6 @@ class CyberShieldProApp(MDApp):
             except Exception as e:
                 self.show_toast("Dialer error: " + str(e))
 
-# -------------------------------------------------------------
-# BULLETPROOF KIVY UI LAYOUT (String dimensions for KivyMD)
-# -------------------------------------------------------------
 KV_LAYOUT = '''
 MDScreen:
     MDBoxLayout:
@@ -224,7 +209,6 @@ MDScreen:
             selected_color_background: 0, 0.3, 0.1, 0.5
             text_color_active: 0, 1, 0.4, 1
 
-            # TAB 1: SCANNER
             MDBottomNavigationItem:
                 name: 'scan_tab'
                 text: 'Scanner'
@@ -253,7 +237,7 @@ MDScreen:
                                 text_color: 0, 1, 0.4, 1
 
                             MDLabel:
-                                text: "PAUSE • CHECK • PROTECT"
+                                text: "PAUSE - CHECK - PROTECT"
                                 font_style: "Subtitle2"
                                 halign: "center"
                                 theme_text_color: "Custom"
@@ -307,7 +291,6 @@ MDScreen:
                                 text: "Threat indicators will appear here."
                                 font_style: "Body2"
 
-            # TAB 2: MONITORS & HELPLINE
             MDBottomNavigationItem:
                 name: 'monitor_tab'
                 text: 'Monitors & Helpline'
@@ -328,7 +311,7 @@ MDScreen:
                             radius: [12]
 
                             MDLabel:
-                                text: "🚨 Cybercrime Helpline 1930"
+                                text: "National Cybercrime Helpline 1930"
                                 font_style: "H6"
                                 bold: True
                                 theme_text_color: "Custom"
@@ -339,7 +322,7 @@ MDScreen:
                                 font_style: "Body2"
 
                             MDFillRoundFlatButton:
-                                text: "📞 CALL 1930 NOW"
+                                text: "CALL 1930 NOW"
                                 md_bg_color: 0.9, 0.1, 0.1, 1
                                 pos_hint: {"center_x": .5}
                                 on_release: app.call_1930()
@@ -352,7 +335,7 @@ MDScreen:
                             radius: [10]
 
                             MDLabel:
-                                text: "📸 Screenshot Monitor Log"
+                                text: "Screenshot Monitor Log"
                                 font_style: "Subtitle1"
                                 bold: True
                                 theme_text_color: "Custom"
@@ -371,7 +354,7 @@ MDScreen:
                             radius: [10]
 
                             MDLabel:
-                                text: "📋 Clipboard Link Monitor"
+                                text: "Clipboard Link Monitor"
                                 font_style: "Subtitle1"
                                 bold: True
                                 theme_text_color: "Custom"
