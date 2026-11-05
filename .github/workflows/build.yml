@@ -26,40 +26,25 @@ jobs:
     - name: Install System Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
+        sudo apt-get install -y --no-install-recommends \
           build-essential \
           git \
           python3-dev \
-          ffmpeg \
-          libsdl2-dev \
-          libsdl2-image-dev \
-          libsdl2-mixer-dev \
-          libsdl2-ttf-dev \
-          libportmidi-dev \
-          libswscale-dev \
-          libavformat-dev \
-          libavcodec-dev \
           zlib1g-dev \
-          libgstreamer1.0-dev \
-          gstreamer1.0-plugins-base \
-          gstreamer1.0-plugins-good \
-          libsqlite3-dev \
-          sqlite3 \
-          bzip2 \
-          libbz2-dev \
           libssl-dev \
-          openssl \
-          libgdbm-dev \
-          libgdbm-compat-dev \
-          liblzma-dev \
           libffi-dev \
-          libncurses-dev \
+          libsqlite3-dev \
+          libncurses5-dev \
+          libncursesw5-dev \
+          libbz2-dev \
+          liblzma-dev \
           zip \
           unzip \
           autoconf \
           libtool \
           cmake \
-          pkg-config
+          pkg-config \
+          ccache
 
     - name: Install Buildozer & Dependencies
       run: |
