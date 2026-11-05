@@ -26,3 +26,5 @@ android.presplash_color = #0F172A
 [buildozer]
 log_level = 2
 warn_on_root = 1
+
+android.enable_androidx = True
